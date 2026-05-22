@@ -45,6 +45,22 @@ def looks_like_processed_artifact(file_path: str) -> bool:
     return Path(file_path).stem.endswith("_processed")
 
 
+def bootstrap_dirs() -> None:
+    """确保 vault 必需目录存在。第一次 clone 后运行任意入口都会自动调用，幂等。
+
+    其它模块（utils / 各处的 save_*）会再 lazy 创建自己的子目录；这里负责的是 watcher
+    依赖的 INBOX 等顶层路径，避免空 vault 上 watchdog 启动直接 FileNotFoundError。
+    """
+    for path in (
+        config.INBOX_PATH,
+        config.DAILY_PATH,
+        config.PROCESSED_PATH,
+        config.WIKI_PATH,
+        config.ARCHIVE_PATH,
+    ):
+        os.makedirs(path, exist_ok=True)
+
+
 # =========================
 # AI 输出解析
 # =========================

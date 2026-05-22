@@ -7,15 +7,24 @@
 
 # ============================================================
 # 用户笔记内容（vault 数据，仓库只装代码与文档）
+# 用 `dir/*` 而非 `dir/`，是为了让 .gitkeep 占位文件能被追踪到
 # ============================================================
-00_Inbox/
-01_Daily/
-02_Projects/
-03_Processed/
-04_Wiki/
-05_Resources/
-06_Archive/
-Attachments/
+00_Inbox/*
+!00_Inbox/.gitkeep
+01_Daily/*
+!01_Daily/.gitkeep
+02_Projects/*
+!02_Projects/.gitkeep
+03_Processed/*
+!03_Processed/.gitkeep
+04_Wiki/*
+!04_Wiki/.gitkeep
+05_Resources/*
+!05_Resources/.gitkeep
+06_Archive/*
+!06_Archive/.gitkeep
+Attachments/*
+!Attachments/.gitkeep
 
 # ============================================================
 # 运行时产物

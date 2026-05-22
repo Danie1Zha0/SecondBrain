@@ -7,7 +7,7 @@ from watchdog.events import FileSystemEventHandler
 
 import config
 from utils import logger, wait_for_file_stable
-from pipeline import process_markdown, scan_inbox, looks_like_processed_artifact
+from pipeline import process_markdown, scan_inbox, looks_like_processed_artifact, bootstrap_dirs
 from inbox_sort import sort_today_inbox
 from day_summary import ensure_yesterday_summary
 
@@ -44,6 +44,8 @@ class InboxHandler(FileSystemEventHandler):
 
 
 def start_watching() -> None:
+    bootstrap_dirs()
+
     observer = Observer()
     handler = InboxHandler()
     observer.schedule(handler, config.INBOX_PATH, recursive=False)

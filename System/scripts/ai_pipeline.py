@@ -83,6 +83,9 @@ def _run_all() -> None:
 def main(argv=None) -> int:
     args = _build_parser().parse_args(argv)
 
+    from pipeline import bootstrap_dirs
+    bootstrap_dirs()
+
     if args.run_all:
         _run_all()
         return 0
