@@ -1,0 +1,12 @@
+# Core
+python-frontmatter>=1.0.0
+watchdog>=4.0.0
+python-dotenv>=1.0.0
+
+# LLM 客户端（按需安装：远程必装 openai；本地必装 ollama）
+openai>=1.30.0
+ollama>=0.3.0
+
+# URL 抓取（capture.py 用懒加载；不装也能跑，只是 URL 抓取功能不可用）
+trafilatura>=1.6.0
+requests>=2.31.0
