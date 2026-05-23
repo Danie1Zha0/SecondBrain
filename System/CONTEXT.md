@@ -3,7 +3,7 @@
 供下一个 Agent 在没有历史会话的情况下快速恢复上下文。
 配套阅读：`System/README.md`（面向用户使用文档）。
 
-> 上次更新：2026-05-22
+> 上次更新：2026-05-23（第二次）
 
 ## 1. 项目目标
 
@@ -91,9 +91,12 @@ watcher 模式启动钩子：`sort_today_inbox()` → `ensure_yesterday_summary(
 filename stem 以 _processed 结尾？           # 防御：避免把流水线产物当源
    └── 是 → warn + return（不调 LLM、不归档）
    ↓
+already_processed?（watcher 层早退）          # 归档后 watchdog 会回报 on_modified；
+   └── 是 → debug log + return               # 源文件已在 06_Archive，此时 exists=False
+   ↓                                          # 若不提前退，wait_for_file_stable 会打 WARNING
 wait_for_file_stable                          # 大小连续稳定再处理
    ↓
-already_processed?                            # 03_Processed/foo_processed.md 存在？
+already_processed?（pipeline 层去重）         # 03_Processed/foo_processed.md 存在？
    └── 是 → 跳过
    ↓
 attempts >= MAX_FAILURE_ATTEMPTS?              # failed.json 累计 >=3 次？
@@ -203,10 +206,14 @@ replace_marked_block（仅替换 <!-- ai-summary:start --> 与 :end 之间）
 | Quick Capture slug 规则化（非 LLM） | 零成本零延迟；URL 取 host+path，纯文本取首 30 字 |
 | LLM 输入不做长度上限 | 用户明确选择"依赖远端报错"，不引入 tokenizer 依赖 |
 | URL 抓取用 `requests + trafilatura.extract` 而非 `trafilatura.fetch_url` | 显式控制 timeout=15s；trafilatura 内置 fetch 在反爬场景不够稳 |
+| `find_unchecked_tasks` 二次过滤 `text.strip() == ""` | 正则 `\s*` 会回溯把单空格当 text 捕获；日记模板里的 `- [ ] ` 占位符被分拣成 `00_Inbox/<时间戳>-note.md`（空 body、slug 兜底为 "note"）。2026-05-23 踩过 |
+| `daily.md` 模板里去掉 `- [ ] ` 占位符 | 即使下游有上述防御，模板里就不应该自带"假任务"；只保留说明文字 |
+| 采样参数（`LLM_TEMPERATURE / LLM_TOP_P / LLM_MAX_TOKENS`）走 env+config | 知识抽取低温度（0.2）让概念命名稳定；`max_tokens=1500` 防跑飞；智谱 GLM `temperature` 必须 > 0，不要写 0.0；同时对 `_call_ollama`（`options.num_predict`）和 `_call_remote`（OpenAI 兼容三参）生效，wiki 摘要与日总结共用 |
+| watcher `_maybe_process` 在 `wait_for_file_stable` 之前加 `already_processed` 早退 | 归档（`archive_source` 调 `shutil.move`）会让 Windows watchdog 对消失的文件回报一次 `on_modified`；此时源文件已不在 `00_Inbox`，`wait_for_file_stable` 里 `os.path.exists` 返回 False → WARNING 噪音。2026-05-23 踩过 |
 
 ## 6. 配置约定
 
-- **环境变量**（可在 `.env` 中覆盖）：`VAULT_PATH / LLM_PROVIDER / OLLAMA_MODEL_NAME / REMOTE_API_KEY / REMOTE_BASE_URL / REMOTE_MODEL_NAME / REMOTE_TIMEOUT / REMOTE_MAX_RETRIES`
+- **环境变量**（可在 `.env` 中覆盖）：`VAULT_PATH / LLM_PROVIDER / OLLAMA_MODEL_NAME / REMOTE_API_KEY / REMOTE_BASE_URL / REMOTE_MODEL_NAME / REMOTE_TIMEOUT / REMOTE_MAX_RETRIES / LLM_TEMPERATURE / LLM_TOP_P / LLM_MAX_TOKENS`
 - **代码常量**（改 `config.py`）：阈值区所有参数，详见文件内中文注解
 - **段落标题**全部走 `config.DAILY_INBOX_HEADER / DAILY_CAPTURED_HEADER / DAILY_SUMMARY_HEADER` 常量；改名只改一处
 - **AI Day Summary 标记**走 `config.DAILY_SUMMARY_MARK_START / MARK_END`；改这两个会让旧日记里的旧标记失效（变成游离文本，但仍可被兜底路径补救）

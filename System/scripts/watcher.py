@@ -7,7 +7,13 @@ from watchdog.events import FileSystemEventHandler
 
 import config
 from utils import logger, wait_for_file_stable
-from pipeline import process_markdown, scan_inbox, looks_like_processed_artifact, bootstrap_dirs
+from pipeline import (
+    process_markdown,
+    scan_inbox,
+    looks_like_processed_artifact,
+    already_processed,
+    bootstrap_dirs,
+)
 from inbox_sort import sort_today_inbox
 from day_summary import ensure_yesterday_summary
 
@@ -21,6 +27,11 @@ class InboxHandler(FileSystemEventHandler):
                 "watcher 跳过流水线产物（_processed.md 不该进 Inbox）: %s",
                 src_path,
             )
+            return
+        # 已经处理过的（多半是归档动作触发的二次事件，或同名文件被同步工具重写），静默跳过，
+        # 避免在 wait_for_file_stable 那里因为源文件已移走而打 WARNING。
+        if already_processed(src_path):
+            logger.debug("watcher 跳过已处理文件: %s", src_path)
             return
         if not wait_for_file_stable(src_path):
             logger.warning("文件未稳定或不存在，跳过: %s", src_path)

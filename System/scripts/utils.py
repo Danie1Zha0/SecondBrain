@@ -16,7 +16,9 @@ def _setup_logger():
     log_file = os.path.join(config.LOG_PATH, "pipeline.log")
 
     logger = logging.getLogger("ai_pipeline")
-    logger.setLevel(logging.INFO)
+    _level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
+    _level = getattr(logging, _level_name, logging.INFO)
+    logger.setLevel(_level)
 
     if logger.handlers:
         return logger

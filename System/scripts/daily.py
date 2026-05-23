@@ -238,7 +238,7 @@ _TASK_LINE = re.compile(r"^(\s*)([-*])\s*\[(?P<state> |x|X)\]\s*(?P<text>.+?)\s*
 
 
 def find_unchecked_tasks(section_body: str):
-    """返回 [(line_index_in_section, raw_line, text)]，仅返回未勾选项。"""
+    """返回 [(line_index_in_section, raw_line, text)]，仅返回未勾选且有实质内容的项。"""
     results = []
     for i, raw in enumerate(section_body.splitlines()):
         m = _TASK_LINE.match(raw)
@@ -247,7 +247,10 @@ def find_unchecked_tasks(section_body: str):
         state = m.group("state")
         if state != " ":
             continue
-        results.append((i, raw, m.group("text")))
+        text = m.group("text").strip()
+        if not text:
+            continue
+        results.append((i, raw, text))
     return results
 
 

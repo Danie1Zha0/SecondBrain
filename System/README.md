@@ -94,11 +94,28 @@ REMOTE_MODEL_NAME=glm-4
 REMOTE_TIMEOUT=60
 REMOTE_MAX_RETRIES=3
 OLLAMA_MODEL_NAME=qwen3:4b
+
+# 采样参数（可选，给出的是默认值）
+LLM_TEMPERATURE=0.2
+LLM_TOP_P=0.9
+LLM_MAX_TOKENS=1500
 ```
 
 - `LLM_PROVIDER=ollama` 时使用本地 Ollama，需要 `ollama serve` 已运行。
 - `LLM_PROVIDER=remote` 时使用 OpenAI 兼容接口（OpenAI / 智谱 / DeepSeek / Kimi / NVIDIA 等）。
 - `REMOTE_TIMEOUT` 单次请求超时秒数；`REMOTE_MAX_RETRIES` 仅对 5xx / 408 / 429 / 超时等可重试错误生效，指数退避。
+
+### 采样参数建议
+
+知识整理任务（wiki 摘要、日总结）属于抽取式输出，偏向稳定。默认值已经按此场景调过：
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `LLM_TEMPERATURE` | `0.2` | 低温度 → 同一篇文章每次提到的概念名一致。智谱 GLM 要求 > 0，所以最低用 `0.1`。 |
+| `LLM_TOP_P` | `0.9` | nucleus sampling，与 temperature 并存，多数 provider 取它认可的那个。 |
+| `LLM_MAX_TOKENS` | `1500` | 输出上限，防止跑飞。中文一般 800~1200 token 就够。 |
+
+如果你发现某次输出被截断，把 `LLM_MAX_TOKENS` 调到 `2000~3000`。如果概念名经常变（同一文档 RAG / 检索增强生成 / Retrieval-Augmented Generation 混用），把 `LLM_TEMPERATURE` 调到 `0.1`。
 
 ## 工作流
 

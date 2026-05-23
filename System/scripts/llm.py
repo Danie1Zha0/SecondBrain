@@ -32,7 +32,15 @@ def _is_retryable(e: Exception) -> bool:
 def _call_ollama(messages, start_ts):
     from ollama import chat as ollama_chat
 
-    response = ollama_chat(model=config.MODEL_NAME, messages=messages)
+    response = ollama_chat(
+        model=config.MODEL_NAME,
+        messages=messages,
+        options={
+            "temperature": config.LLM_TEMPERATURE,
+            "top_p": config.LLM_TOP_P,
+            "num_predict": config.LLM_MAX_TOKENS,
+        },
+    )
     text = response["message"]["content"]
     meta = {
         "provider": "ollama",
@@ -61,6 +69,9 @@ def _call_remote(messages, start_ts):
             response = client.chat.completions.create(
                 model=config.MODEL_NAME,
                 messages=messages,
+                temperature=config.LLM_TEMPERATURE,
+                top_p=config.LLM_TOP_P,
+                max_tokens=config.LLM_MAX_TOKENS,
             )
             text = response.choices[0].message.content
             usage = getattr(response, "usage", None)
@@ -102,7 +113,14 @@ def ask_llm(content: str):
         {"role": "user", "content": f"下面是内容：\n\n{content}"},
     ]
 
-    logger.info("调用 LLM provider=%s model=%s", config.LLM_PROVIDER, config.MODEL_NAME)
+    logger.info(
+        "调用 LLM provider=%s model=%s temperature=%s top_p=%s max_tokens=%s",
+        config.LLM_PROVIDER,
+        config.MODEL_NAME,
+        config.LLM_TEMPERATURE,
+        config.LLM_TOP_P,
+        config.LLM_MAX_TOKENS,
+    )
     start = time.time()
 
     if config.LLM_PROVIDER == "ollama":

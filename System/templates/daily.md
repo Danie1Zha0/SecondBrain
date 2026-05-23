@@ -40,9 +40,7 @@ weather:
 
 ## Inbox
 
-待分拣项写成 `- [ ] xxx`，运行 `--capture` 或下次启动 pipeline 时会被搬到 00_Inbox 并自动勾上：
-
-- [ ] 
+待分拣项写成 `- [ ] xxx`，运行 `--capture` 或下次启动 pipeline 时会被搬到 00_Inbox 并自动勾上。
 
 ## Reflection
 
