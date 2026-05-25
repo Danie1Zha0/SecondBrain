@@ -3,7 +3,7 @@
 供下一个 Agent 在没有历史会话的情况下快速恢复上下文。
 配套阅读：`System/README.md`（面向用户使用文档）。
 
-> 上次更新：2026-05-23（第二次）
+> 上次更新：2026-05-25
 
 ## 1. 项目目标
 
@@ -231,8 +231,28 @@ replace_marked_block（仅替换 <!-- ai-summary:start --> 与 :end 之间）
 - **Quick Capture 不分拣历史日记**：`sort_today_inbox` 只看今天；想分拣旧的用 `--capture YYYY-MM-DD`
 - **AI Day Summary 不支持 streaming**：一次性返回；卡顿时用户看不到进度
 - **_processed.md 守卫只看文件名后缀**：理论上有人可以故意命名 `xxx_processed.md` 但实际是新笔记；目前可接受这个误伤换稳定
+- **Android 上 URL 正文抓取不可用**：`trafilatura` 在 Termux/ARM 上安装较复杂，用户已确认 Android 端不需要此功能，`capture.py` 做了懒加载保护，不安装不影响其他流程
 
-## 8. 编码风格 / 约定
+## 8. 平台支持
+
+### PC（Windows，主力开发环境）
+
+完整功能，包含 watcher 模式、URL 正文抓取、本地 Ollama。
+
+依赖：`python-frontmatter watchdog ollama openai python-dotenv trafilatura requests`
+
+### Android（Termux，已验证可用）
+
+- 不使用 watcher 模式，改用手动触发 `--scan / --all`
+- vault 放在 `/storage/emulated/0/Documents/SecondBrain/`（公共目录，Termux 可读写）
+- 用 Termux:Widget 在主屏创建一键触发快捷方式
+- `trafilatura` 不安装，URL 正文抓取静默跳过
+- 代码无需任何改动，直接 `git clone` + `pip install` + 配 `.env` 即可运行
+- 多端 vault 同步推荐 Syncthing，代码更新用 `git pull`
+
+依赖（精简）：`python-frontmatter openai python-dotenv requests`
+
+## 9. 编码风格 / 约定
 
 - 全部 UTF-8；文件 IO 一律 `encoding="utf-8"`
 - 日志走 `utils.logger`，禁用 `print`（除冒烟脚本）
@@ -244,7 +264,7 @@ replace_marked_block（仅替换 <!-- ai-summary:start --> 与 :end 之间）
 - **不要在 `re.sub / re.subn` 的 replacement 参数里直接传含路径或用户输入的字符串**——用 lambda 或换成按行替换。`\N \w \D` 这些都是合法转义会报错
 - 写新模块时尽量做"段落操作不破坏未知文本"原则：能用切片就别用大正则替换整段
 
-## 9. 给下一个 Agent 的快速上手
+## 10. 给下一个 Agent 的快速上手
 
 1. 先读 `System/README.md` 掌握用户面接口
 2. 改代码前先读本文件第 5 节"关键决策"，避免重蹈覆辙

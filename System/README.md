@@ -38,9 +38,19 @@ System/scripts/
 
 ## 依赖
 
+**PC（完整功能）：**
+
 ```
 pip install python-frontmatter watchdog ollama openai python-dotenv trafilatura requests
 ```
+
+**Android / Termux（无 watcher、无 URL 正文抓取）：**
+
+```
+pip install python-frontmatter openai python-dotenv requests
+```
+
+`trafilatura` 和 `watchdog` 是可选依赖，不安装时对应功能静默降级（URL 抓取跳过、不能用 watcher 模式），不影响 `--scan / --all` 等一次性命令。
 
 ## 启动
 
@@ -212,6 +222,63 @@ LLM_MAX_TOKENS=1500
 - 核心插件 Templates：模板目录设为 `System/templates`
 - 核心插件 Daily notes：模板选 `System/templates/daily.md`，日记目录 `01_Daily`
 - 社区插件 Dataview：基于 `03_Processed` frontmatter 统计模型使用与耗时
+
+## Android 部署（Termux）
+
+pipeline 已在 Android + Termux 上验证可用。
+
+### 前提
+
+- 从 **F-Droid** 安装 Termux（不要用 Play Store 版，版本过旧）
+- Obsidian vault 放在公共目录，如 `/storage/emulated/0/Documents/SecondBrain/`
+
+### 安装步骤
+
+```bash
+# 1. 申请存储权限
+termux-setup-storage
+
+# 2. 安装 Python 和 git
+pkg install python git
+
+# 3. clone 仓库（私有仓库用 Token 认证）
+cd /storage/emulated/0/Documents
+git clone https://用户名:TOKEN@github.com/用户名/SecondBrain.git
+
+# 4. 安装 Python 依赖（不需要 watchdog / trafilatura）
+pip install python-frontmatter openai python-dotenv requests
+
+# 5. 配置 .env
+cd SecondBrain
+cp .env.example .env
+# 编辑 VAULT_PATH 为 /storage/emulated/0/Documents/SecondBrain
+nano .env
+```
+
+### 运行
+
+```bash
+cd /storage/emulated/0/Documents/SecondBrain
+python System/scripts/ai_pipeline.py --scan
+# 或一次跑完全套
+python System/scripts/ai_pipeline.py --all
+```
+
+不使用 watcher 模式（Android 后台进程不稳定）。推荐用 **Termux:Widget** 在主屏创建一键触发快捷方式：
+
+```bash
+mkdir -p ~/.shortcuts
+cat > ~/.shortcuts/scan.sh << 'EOF'
+#!/data/data/com.termux/files/usr/bin/bash
+cd /storage/emulated/0/Documents/SecondBrain
+python System/scripts/ai_pipeline.py --scan
+EOF
+chmod +x ~/.shortcuts/scan.sh
+```
+
+### vault 多端同步
+
+PC ↔ 手机 vault 数据同步推荐 **Syncthing**（免费、P2P），代码仓库更新用 `git pull`。
 
 ## 日志
 
