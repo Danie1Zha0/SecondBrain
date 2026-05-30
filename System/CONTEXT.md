@@ -230,7 +230,7 @@ replace_marked_block（仅替换 <!-- ai-summary:start --> 与 :end 之间）
 - **OLLAMA 路径未实测**：远程路径用得多，本地 ollama 仅模块结构兼容，未做端到端验证
 - **Quick Capture 不分拣历史日记**：`sort_today_inbox` 只看今天；想分拣旧的用 `--capture YYYY-MM-DD`
 - **AI Day Summary 不支持 streaming**：一次性返回；卡顿时用户看不到进度
-- **_processed.md 守卫只看文件名后缀**：理论上有人可以故意命名 `xxx_processed.md` 但实际是新笔记；目前可接受这个误伤换稳定
+- **`save_processed` 非原子写**：`open("w")` 先创建空文件，写入中途崩溃（磁盘满/断电）会留下残缺 `_processed.md`，导致 `already_processed()` 误判为"已处理"而永远跳过。已知缺陷，概率极低，修法是"先写 `.tmp` 再 `os.rename`"原子替换，暂未实现
 - **Android 上 URL 正文抓取不可用**：`trafilatura` 在 Termux/ARM 上安装较复杂，用户已确认 Android 端不需要此功能，`capture.py` 做了懒加载保护，不安装不影响其他流程
 
 ## 8. 平台支持

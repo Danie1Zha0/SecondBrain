@@ -121,7 +121,7 @@ def save_processed(source_file: str, ai_output: str, meta: dict) -> str:
         f"duration_ms: {_val(meta.get('duration_ms'))}",
         "---",
         "",
-        ai_output or "",
+        ai_output,
         "",
     ]
 
@@ -452,6 +452,9 @@ def process_markdown(file_path: str) -> None:
             meta.get("tokens_in"),
             meta.get("tokens_out"),
         )
+
+        if not ai_output or not ai_output.strip():
+            raise ValueError("LLM 返回空内容（content=None 或空字符串），不写入 _processed.md 以便下次重试")
 
         processed_file = save_processed(file_path, ai_output, meta)
 
