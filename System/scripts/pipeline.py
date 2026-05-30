@@ -404,6 +404,85 @@ def _cleanup_stale_failures() -> None:
         _save_failed_state(data)
 
 
+def _find_archived(src_path: str) -> str | None:
+    """从 _processed.md frontmatter 或 06_Archive 目录找回原文件路径。"""
+    processed = processed_path_for(src_path)
+    if os.path.exists(processed):
+        try:
+            post = frontmatter.load(processed)
+            ap = post.metadata.get("archived_path", "")
+            if ap and os.path.exists(ap):
+                return ap
+        except Exception:
+            pass
+
+    # 按文件名在 06_Archive/<YYYY-MM>/ 里逐月倒序搜索
+    basename = os.path.basename(src_path)
+    if os.path.isdir(config.ARCHIVE_PATH):
+        for month_dir in sorted(os.listdir(config.ARCHIVE_PATH), reverse=True):
+            candidate = os.path.join(config.ARCHIVE_PATH, month_dir, basename)
+            if os.path.exists(candidate):
+                return candidate
+    return None
+
+
+def retry_failed() -> tuple[int, int]:
+    """将 failed.json 里的文件全部恢复到 00_Inbox 准备重处理。
+
+    对每条记录依次执行：
+    1. 若源文件仍在 00_Inbox，无需恢复
+    2. 否则从 _processed.md 的 archived_path 或 06_Archive 目录找回，移回 00_Inbox
+    3. 删除对应的 _processed.md（若存在）
+    4. 从 failed.json 清除记录
+
+    返回 (recovered, skipped)。
+    """
+    os.makedirs(config.INBOX_PATH, exist_ok=True)
+    data = _load_failed_state()
+    if not data:
+        logger.info("failed.json 为空，没有需要重试的文件")
+        return 0, 0
+
+    recovered = 0
+    skipped = 0
+
+    for src_path in list(data.keys()):
+        # 1. 源文件是否已在 00_Inbox
+        if os.path.exists(src_path):
+            logger.info("源文件仍在 00_Inbox: %s", src_path)
+        else:
+            # 2. 找回归档文件
+            archived = _find_archived(src_path)
+            if not archived:
+                logger.warning("找不到原文件，跳过: %s", src_path)
+                skipped += 1
+                continue
+            try:
+                shutil.move(archived, src_path)
+                logger.info("已恢复: %s -> %s", archived, src_path)
+            except Exception as e:
+                logger.error("恢复失败 archived=%s err=%s", archived, e)
+                skipped += 1
+                continue
+
+        # 3. 删除 _processed.md（若存在）
+        processed = processed_path_for(src_path)
+        if os.path.exists(processed):
+            try:
+                os.remove(processed)
+                logger.info("已删除 processed: %s", processed)
+            except Exception as e:
+                logger.warning("删除 _processed.md 失败 err=%s", e)
+
+        # 4. 清除 failed.json 记录
+        data.pop(src_path)
+        recovered += 1
+
+    _save_failed_state(data)
+    logger.info("retry_failed 完成：恢复 %s 个，跳过 %s 个", recovered, skipped)
+    return recovered, skipped
+
+
 # =========================
 # 主入口
 # =========================

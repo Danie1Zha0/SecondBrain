@@ -73,6 +73,8 @@ python System/scripts/ai_pipeline.py --all                  # 一次跑完今天
 python System/scripts/ai_pipeline.py --capture [DATE]       # 分拣某日 daily 的 ## Inbox
 python System/scripts/ai_pipeline.py --scan                 # 冷扫描一次 00_Inbox
 python System/scripts/ai_pipeline.py --summary [DATE] [--force]  # 写当日 AI 总结
+python System/scripts/ai_pipeline.py --retry                # 恢复 failed.json 里的文件到 00_Inbox 并清除记录
+python System/scripts/ai_pipeline.py --retry --scan         # 恢复后立即重处理
 ```
 
 子命令组合时执行顺序：**capture → scan → summary**（保证 summary 看到本次处理产物）。
@@ -225,7 +227,7 @@ replace_marked_block（仅替换 <!-- ai-summary:start --> 与 :end 之间）
 - **on_modified 防抖未做**：同步工具多次触发会调多次 `process_markdown`，但 `already_processed` 会快速返回，仅 CPU 浪费
 - **LLM 输入长度无上限**：超大文档可能爆 context window，依赖远端报错
 - **多文件并发处理未做**：所有处理串行；单用户日常笔记体量足够
-- **CLI 重处理工具未做**：当前手动重处理要删 `03_Processed/<stem>_processed.md` + 把文件从 `06_Archive` 拷回 `00_Inbox`；如需常用建议加 `--reprocess <stem>` 参数
+- **CLI 重处理工具**：`--retry` 命令会把 `failed.json` 里所有失败文件恢复到 `00_Inbox`（从 `06_Archive` 找回原文），删除对应 `_processed.md`，清除失败记录，配合 `--scan` 立即重处理
 - **wiki 的 `Related` 板块在追加时不更新**：第二篇笔记引用同一概念只会追加 `## References`，不会把它的其它 concepts 加到该 wiki 的 `## Related`
 - **OLLAMA 路径未实测**：远程路径用得多，本地 ollama 仅模块结构兼容，未做端到端验证
 - **Quick Capture 不分拣历史日记**：`sort_today_inbox` 只看今天；想分拣旧的用 `--capture YYYY-MM-DD`

@@ -7,6 +7,7 @@
   --capture [DATE]   分拣日记 ## Inbox 未勾选项到 00_Inbox（默认今天）
   --summary [DATE]   生成/重写 ## AI Day Summary（默认今天；--force 覆盖）
   --scan             冷扫描 00_Inbox 一次
+  --retry            将 failed.json 里的文件恢复到 00_Inbox 并清除失败记录（可接 --scan 立即重处理）
 
 多个子命令同时给出时按 capture -> scan -> summary 顺序执行。
 """
@@ -42,6 +43,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--force", action="store_true", help="日总结已存在时覆盖")
     p.add_argument("--scan", action="store_true", help="冷扫描一次 00_Inbox 后退出")
+    p.add_argument(
+        "--retry",
+        action="store_true",
+        help="将 failed.json 里的文件恢复到 00_Inbox 并清除失败记录；可与 --scan 合用立即重处理",
+    )
     return p
 
 
@@ -90,12 +96,16 @@ def main(argv=None) -> int:
         _run_all()
         return 0
 
-    if args.capture is not None or args.summary is not None or args.scan:
+    if args.capture is not None or args.summary is not None or args.scan or args.retry:
         from utils import logger
         from inbox_sort import sort_daily_inbox
         from day_summary import summarize_day
-        from pipeline import scan_inbox
+        from pipeline import scan_inbox, retry_failed
         from daily import parse_date
+
+        if args.retry:
+            recovered, skipped = retry_failed()
+            logger.info("--retry 完成：恢复 %s 个，跳过 %s 个", recovered, skipped)
 
         if args.capture is not None:
             date_str = None if args.capture == "__today__" else parse_date(args.capture)

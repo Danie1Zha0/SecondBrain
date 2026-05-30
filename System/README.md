@@ -79,6 +79,8 @@ python System/scripts/ai_pipeline.py --capture 2026-05-20 # 分拣指定日期
 python System/scripts/ai_pipeline.py --summary            # 生成今日 AI 总结
 python System/scripts/ai_pipeline.py --summary 2026-05-21 --force  # 覆盖指定日期总结
 python System/scripts/ai_pipeline.py --scan               # 冷扫描一次 00_Inbox
+python System/scripts/ai_pipeline.py --retry              # 恢复 failed.json 里的文件到 00_Inbox 并清除记录
+python System/scripts/ai_pipeline.py --retry --scan       # 恢复后立即重处理
 ```
 
 `--all` 等价于按以下顺序串起来跑：
