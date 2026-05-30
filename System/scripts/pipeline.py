@@ -121,7 +121,7 @@ def save_processed(source_file: str, ai_output: str, meta: dict) -> str:
         f"duration_ms: {_val(meta.get('duration_ms'))}",
         "---",
         "",
-        ai_output,
+        ai_output or "",
         "",
     ]
 

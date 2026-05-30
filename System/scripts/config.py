@@ -63,9 +63,6 @@ LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.2"))
 # nucleus sampling，与 temperature 二选一即可。同时设的话由 provider 取它认可的那个。
 LLM_TOP_P = float(os.environ.get("LLM_TOP_P", "0.9"))
 
-# 输出 token 上限，防止跑飞。中文 Summary+Concepts+Definitions+Key Ideas+Related 一般 800~1200 tokens。
-LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "1500"))
-
 MODEL_NAME = OLLAMA_MODEL_NAME if LLM_PROVIDER == "ollama" else REMOTE_MODEL_NAME
 
 # 与 wiki_prompt.txt 同步变更

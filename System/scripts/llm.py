@@ -38,7 +38,6 @@ def _call_ollama(messages, start_ts):
         options={
             "temperature": config.LLM_TEMPERATURE,
             "top_p": config.LLM_TOP_P,
-            "num_predict": config.LLM_MAX_TOKENS,
         },
     )
     text = response["message"]["content"]
@@ -71,9 +70,15 @@ def _call_remote(messages, start_ts):
                 messages=messages,
                 temperature=config.LLM_TEMPERATURE,
                 top_p=config.LLM_TOP_P,
-                max_tokens=config.LLM_MAX_TOKENS,
             )
             text = response.choices[0].message.content
+            if text is None:
+                finish_reason = getattr(response.choices[0], "finish_reason", None)
+                logger.warning(
+                    "LLM 返回 content=None finish_reason=%s，模型可能拒绝输出",
+                    finish_reason,
+                )
+                text = ""
             usage = getattr(response, "usage", None)
             meta = {
                 "provider": "remote",
@@ -114,12 +119,11 @@ def ask_llm(content: str):
     ]
 
     logger.info(
-        "调用 LLM provider=%s model=%s temperature=%s top_p=%s max_tokens=%s",
+        "调用 LLM provider=%s model=%s temperature=%s top_p=%s",
         config.LLM_PROVIDER,
         config.MODEL_NAME,
         config.LLM_TEMPERATURE,
         config.LLM_TOP_P,
-        config.LLM_MAX_TOKENS,
     )
     start = time.time()
 
