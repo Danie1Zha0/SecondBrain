@@ -7,7 +7,7 @@ Obsidian 知识库的自动化笔记处理流水线。监听 `00_Inbox`，调用
 - `00_Inbox/` 收件箱，新笔记入口
 - `01_Daily/` 日记
 - `02_Projects/` 进行中的项目
-- `03_Processed/` AI 处理后的摘要
+- `03_Processed/<YYYY-MM>/` AI 处理后的摘要（按处理月份归档）
 - `04_Wiki/` 概念百科
 - `05_Resources/` 参考资料
 - `06_Archive/` 归档
@@ -67,7 +67,7 @@ python System/scripts/ai_pipeline.py
 3. 启动钩子：
    - 分拣今天日记 `## Inbox` 的未勾选项 → 写到 `00_Inbox` 并自动勾上 `- [x]`
    - 检测昨天日记的 `## AI Day Summary`，缺则补写一次
-4. 冷启动扫描：对 `00_Inbox` 里没有对应 `_processed.md` 的笔记，自动补处理
+4. 冷启动扫描：对 `00_Inbox` 里没有对应 `03_Processed/<YYYY-MM>/*_processed.md` 的笔记，自动补处理
 5. 持续监听新文件
 
 一次性子命令（不启动 watcher）：
@@ -133,7 +133,7 @@ LLM_TOP_P=0.9
 2. watcher 等文件大小稳定后读取内容
 3. 正文 < 200 字且包含 URL 时，用 `trafilatura` 抓取网页正文并合并
 4. 调用 LLM 生成 Summary / Concepts / Definitions / Key Ideas / Related
-5. 写入 `03_Processed/<name>_processed.md`，frontmatter 含 provider / model / prompt_version / tokens / duration_ms
+5. 写入 `03_Processed/<YYYY-MM>/<name>_processed.md`，frontmatter 含 provider / model / prompt_version / tokens / duration_ms
 6. 对每个概念：
    - 若 `04_Wiki/<concept>.md` 不存在，新建并写入 LLM 给出的 Definition
    - 若已存在，把当前笔记追加到该 wiki 的 `## References`（去重）
@@ -154,7 +154,7 @@ LLM_TOP_P=0.9
 ### AI 日总结
 
 - 触发：`--summary [DATE]`，或 pipeline 启动时检测到昨日缺总结自动补写
-- 输入：日记原文 + 当日 `03_Processed` 里所有笔记的 # Summary 段
+- 输入：日记原文 + 当日 `03_Processed/<YYYY-MM>/` 里所有相关笔记的 # Summary 段
 - 输出：写到 `## AI Day Summary` 段里的标记块之间：
 
   ```
@@ -167,7 +167,7 @@ LLM_TOP_P=0.9
   <!-- ai-summary:end -->
   ```
 - **隔离规则**：只有 `<!-- ai-summary:start -->` 与 `<!-- ai-summary:end -->` 之间的内容会被覆盖；标记外（同段落里的人工补充、提示文字、frontmatter、其它任何段落）一律不动。
-- **空模板跳过**：当用户没在日记里写任何实质内容（仅模板默认结构）且当日 `03_Processed` 没有产出时，不调 LLM。
+- **空模板跳过**：当用户没在日记里写任何实质内容（仅模板默认结构）且当日没有对应 processed 产出时，不调 LLM。
 - 标记块已有内容时跳过；`--force` 覆盖。
 - 用户不小心删掉了标记？回退路径会把新的标记块追加到 `## AI Day Summary` 段末尾，已有的文字不受影响。
 
@@ -178,16 +178,16 @@ LLM_TOP_P=0.9
 
 ## 去重
 
-判断依据：`03_Processed/<stem>_processed.md` 是否存在。
+判断依据：`03_Processed/<YYYY-MM>/<stem>_processed.md` 是否存在。月份优先从源文件名的日期前缀提取，提取不到则使用当前月；为兼容旧数据，也会检查旧的 `03_Processed/<stem>_processed.md` 扁平路径。
 
 - 处理成功后会写入该文件，后续不再重复处理。
-- 想重跑某篇笔记：删掉对应的 `_processed.md`，下次启动或文件再次触发时会重新生成。
+- 想重跑某篇笔记：删掉对应月份目录里的 `_processed.md`，下次启动或文件再次触发时会重新生成。
 
 ## 防御：避免把流水线产物当源处理
 
 如果 `_processed.md` 文件出现在 `00_Inbox/`（手滑、同步工具误同步、Obsidian 创建链接 stub 等场景），watcher / scan / `--all` 都会跳过它并打 WARNING 日志，绝不再当新笔记调 LLM。判断依据：文件名 stem 以 `_processed` 结尾。
 
-**不要把 `_processed.md` 文件放到 `00_Inbox/`**。它们的归宿是 `03_Processed/`。
+**不要把 `_processed.md` 文件放到 `00_Inbox/`**。它们的归宿是 `03_Processed/<YYYY-MM>/`。
 
 ## 失败处理
 

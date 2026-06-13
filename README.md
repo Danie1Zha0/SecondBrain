@@ -43,6 +43,29 @@ python System/scripts/ai_pipeline.py --all
 
 详细 CLI 与工作流见 [`System/README.md`](System/README.md)。
 
+## Syncthing 同步提示
+
+服务器端 Web GUI 建议通过 SSH 隧道访问：
+
+```bash
+ssh -L 8384:localhost:8384 admin@你的服务器IP -N
+```
+
+然后浏览器打开 `http://localhost:8384`。
+
+`.stignore` 不会同步到手机端，需要在手机 Syncthing 的 `Folders → SecondBrain → Edit → Ignore Patterns` 单独配置：
+
+```text
+.git
+.git/**
+.env
+__pycache__
+__pycache__/**
+*.pyc
+*.pyo
+*.pyd
+```
+
 ## 仓库内容
 
 ```

@@ -32,12 +32,26 @@ def clean_text(text: str) -> str:
 # =========================
 
 
+def _processed_month_dir(file_path: str) -> str:
+    """从源文件名提取 YYYY-MM 作为月份子目录，提取不到则用当前月。"""
+    stem = Path(file_path).stem
+    m = re.match(r"^(\d{4}-\d{2})-", stem)
+    month = m.group(1) if m else time.strftime("%Y-%m")
+    return os.path.join(config.PROCESSED_PATH, month)
+
+
 def processed_path_for(file_path: str) -> str:
-    return os.path.join(config.PROCESSED_PATH, Path(file_path).stem + "_processed.md")
+    month_dir = _processed_month_dir(file_path)
+    return os.path.join(month_dir, Path(file_path).stem + "_processed.md")
 
 
 def already_processed(file_path: str) -> bool:
-    return os.path.exists(processed_path_for(file_path))
+    # 先检查带月份子目录的新路径
+    if os.path.exists(processed_path_for(file_path)):
+        return True
+    # 兼容旧的无月份路径（迁移前存在的文件）
+    flat = os.path.join(config.PROCESSED_PATH, Path(file_path).stem + "_processed.md")
+    return os.path.exists(flat)
 
 
 def looks_like_processed_artifact(file_path: str) -> bool:
@@ -102,7 +116,8 @@ def extract_definitions(ai_output: str):
 
 
 def save_processed(source_file: str, ai_output: str, meta: dict) -> str:
-    os.makedirs(config.PROCESSED_PATH, exist_ok=True)
+    month_dir = _processed_month_dir(source_file)
+    os.makedirs(month_dir, exist_ok=True)
     out_path = processed_path_for(source_file)
 
     def _val(v):
