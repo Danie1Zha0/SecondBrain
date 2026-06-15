@@ -66,7 +66,7 @@ LLM_TOP_P = float(os.environ.get("LLM_TOP_P", "0.9"))
 MODEL_NAME = OLLAMA_MODEL_NAME if LLM_PROVIDER == "ollama" else REMOTE_MODEL_NAME
 
 # 与 wiki_prompt.txt 同步变更
-PROMPT_VERSION = "2026-05-21"
+PROMPT_VERSION = "2026-06-15"
 
 # =========================
 # 阈值

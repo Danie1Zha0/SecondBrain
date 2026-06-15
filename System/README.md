@@ -23,17 +23,19 @@ Obsidian 知识库的自动化笔记处理流水线。监听 `00_Inbox`，调用
 
 ```
 System/scripts/
-  ai_pipeline.py    # CLI 入口（watcher / --capture / --summary / --scan）
-  config.py         # 路径与环境变量
-  utils.py          # 日志 / 文件名清洗 / 文件稳定检测
-  llm.py            # ask_llm（超时、重试、usage）
-  capture.py        # URL 抓取（trafilatura）
-  pipeline.py       # 主处理流程
-  watcher.py        # 文件监听 + 冷启动扫描 + 启动钩子
-  daily.py          # 日记路径与段落读写
-  inbox_sort.py     # Quick Capture 分拣（日记 Inbox -> 00_Inbox）
-  day_summary.py    # AI 日总结
-  reverse_index.py  # 处理结果反向写回日记 ## Captured
+  ai_pipeline.py     # CLI 入口（watcher / --capture / --summary / --scan）
+  config.py          # 路径与环境变量
+  utils.py           # 日志 / 文件名清洗 / 文件稳定检测
+  llm.py             # ask_llm + chat / ask_with_system（超时、重试、usage）
+  capture.py         # URL 抓取（trafilatura）
+  pipeline.py        # 主处理流程
+  watcher.py         # 文件监听 + 冷启动扫描 + 启动钩子
+  daily.py           # 日记路径与段落读写
+  inbox_sort.py      # Quick Capture 分拣（日记 Inbox -> 00_Inbox）
+  day_summary.py     # AI 日总结
+  reverse_index.py   # 处理结果反向写回日记 ## Captured
+  wiki_cleanup.py     # 【维护】存量词条清洗：定义重生成 + Related 语义过滤
+  wiki_merge_dupes.py # 【维护】合并大小写/空格/单复数重复词条并改写链接
 ```
 
 ## 依赖
@@ -132,11 +134,13 @@ LLM_TOP_P=0.9
 1. 新增 `.md` 到 `00_Inbox`（手动拖入 / Markor 落地 / Quick Capture 分拣）
 2. watcher 等文件大小稳定后读取内容
 3. 正文 < 200 字且包含 URL 时，用 `trafilatura` 抓取网页正文并合并
-4. 调用 LLM 生成 Summary / Concepts / Definitions / Key Ideas / Related
+4. 调用 LLM 生成 Summary / Concepts / Definitions / Key Ideas / Related / Relations
+   （`# Relations` 段给出**每个概念真正语义相关的概念**，是 Wiki `## Related` 的数据来源）
 5. 写入 `03_Processed/<YYYY-MM>/<name>_processed.md`，frontmatter 含 provider / model / prompt_version / tokens / duration_ms
 6. 对每个概念：
-   - 若 `04_Wiki/<concept>.md` 不存在，新建并写入 LLM 给出的 Definition
-   - 若已存在，把当前笔记追加到该 wiki 的 `## References`（去重）
+   - 若 `04_Wiki/<concept>.md` 不存在，新建：写入 Definition，`## Related` 填该概念在 `# Relations` 里的语义相关项（不再堆同篇全量共现）
+   - 若已存在：追加当前笔记到 `## References`（去重）、并集去重 `## Related`、并对定义做批量 LLM 择优精炼（失败/限流自动退化保留原定义，不影响文章处理）
+   - 建档前按大小写/空格归一查找：已有 `AI Agent` 时，`AI agent` / `Open Router`/`OpenRouter` 这类变体直接并入，不重复建档
 7. 反向索引：按源文件 frontmatter 的 `captured_from_date` 找到对应日记（无则今天），把 `- [[<processed>]] <- [[<source>]]` 追加到日记 `## Captured`
 8. 处理成功后把原始文件从 `00_Inbox` 移动到 `06_Archive/<YYYY-MM>/`；同名冲突时追加 `_1 / _2 ...`
 
@@ -211,6 +215,45 @@ LLM_TOP_P=0.9
 - 处理成功后自动从 `failed.json` 移除对应条目。
 - 冷启动扫描时会清理已经在 `03_Processed` 里有结果的孤儿失败记录。
 - 旧的列表格式（`[{...}, {...}]`）会在首次加载时自动迁移到字典格式。
+
+## Wiki 质量与维护
+
+### Related 来自语义相关，而非全量共现
+
+`## Related` 的内容来自 LLM 输出的 `# Relations` 段（每个概念各自挑出 2~5 个真正相关的概念），
+而不是把同一篇文章里出现的所有概念一股脑互链。词条已存在时，新文章的相关项会并集去重补进来，
+定义也会基于新来源批量择优精炼（不再是「首次写死、之后只追加引用」）。
+
+### 防重
+
+- 提示词约束概念命名统一**单数 + 惯用大小写**。
+- 建档前按大小写/空格归一复用已有词条，避免 `AI agent` / `AI Agent`、`Open Router` / `OpenRouter` 这类重复。
+  （单复数差异不做实时自动合并，留给下面的合并脚本人工确认。）
+
+### 维护脚本（一次性，按需手动跑）
+
+两个脚本都**默认 dry-run**（只写报告到 `System/logs/`，不动文件），确认无误再加 `--apply`。
+
+**`wiki_cleanup.py` — 存量词条清洗**：重生成 TODO/空定义、按语义过滤 `## Related` 噪声。
+断点续跑（进度记 `System/state/wiki_cleanup_done.json`）、批量、429 限流自动退避、纯标点改动自动忽略。
+
+```bash
+python System/scripts/wiki_cleanup.py                 # dry-run 全量，出报告
+python System/scripts/wiki_cleanup.py --limit 10      # 先小样本验证
+python System/scripts/wiki_cleanup.py --apply         # 写回（可反复跑，自动续上）
+```
+
+报告：`System/logs/wiki_cleanup_report.md`。
+
+**`wiki_merge_dupes.py` — 合并重复词条**：合并仅大小写/空格（加 `--plural` 含单复数）不同的变体，
+并集定义/Related/References，并在 `04_Wiki` / `03_Processed` / `01_Daily` 全库改写指向变体的 `[[链接]]`。
+
+```bash
+python System/scripts/wiki_merge_dupes.py --plural          # dry-run，预览合并计划
+python System/scripts/wiki_merge_dupes.py --plural --apply  # 真正合并并删除变体
+```
+
+报告：`System/logs/wiki_merge_report.md`。合并后建议把受影响的规范词条从 `wiki_cleanup_done.json` 移除，让清洗脚本重洗其并集后的 Related。
 
 ## 修改提示词
 

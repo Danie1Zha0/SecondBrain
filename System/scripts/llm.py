@@ -110,6 +110,31 @@ def _call_remote(messages, start_ts):
     raise last_error
 
 
+def chat(messages):
+    """底层调用：按 provider 分发，返回 (text, meta)。"""
+    start = time.time()
+    if config.LLM_PROVIDER == "ollama":
+        return _call_ollama(messages, start)
+    if config.LLM_PROVIDER == "remote":
+        return _call_remote(messages, start)
+    raise ValueError(f"不支持的 LLM_PROVIDER: {config.LLM_PROVIDER}")
+
+
+def ask_with_system(system_prompt: str, user_content: str):
+    """通用入口：自定义 system prompt + user 内容，复用统一的重试/限速逻辑。"""
+    logger.info(
+        "调用 LLM(自定义) provider=%s model=%s",
+        config.LLM_PROVIDER,
+        config.MODEL_NAME,
+    )
+    return chat(
+        [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+    )
+
+
 def ask_llm(content: str):
     """返回 (text, meta)。meta 包含 provider/model/tokens_in/tokens_out/duration_ms。"""
     base_prompt = _load_prompt()
@@ -125,10 +150,4 @@ def ask_llm(content: str):
         config.LLM_TEMPERATURE,
         config.LLM_TOP_P,
     )
-    start = time.time()
-
-    if config.LLM_PROVIDER == "ollama":
-        return _call_ollama(messages, start)
-    if config.LLM_PROVIDER == "remote":
-        return _call_remote(messages, start)
-    raise ValueError(f"不支持的 LLM_PROVIDER: {config.LLM_PROVIDER}")
+    return chat(messages)

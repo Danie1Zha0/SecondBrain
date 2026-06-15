@@ -12,7 +12,7 @@ import frontmatter
 
 import config
 from utils import logger, sanitize_filename
-from llm import ask_llm
+from llm import ask_llm, ask_with_system
 from capture import find_urls, fetch_article
 from reverse_index import link_processed_to_daily
 
@@ -81,21 +81,43 @@ def bootstrap_dirs() -> None:
 
 
 def _extract_section(ai_output: str, header_name: str) -> str:
-    pattern = rf"#{{1,6}}\s*{re.escape(header_name)}\s*\n(.*?)(?=\n#{{1,6}}\s|\Z)"
+    """抓取 ``# <header>`` 段的正文。
+
+    兼容两种格式：标题后换行（多行）或标题后正文直接跟在同一行（某些模型会把
+    整段挤成一行）。正文一直取到下一个 ``\\n# 标题`` 或文末。
+    """
+    pattern = rf"#{{1,6}}[ \t]*{re.escape(header_name)}\b[ \t]*(.*?)(?=\n#{{1,6}}[ \t]|\Z)"
     m = re.search(pattern, ai_output, re.DOTALL)
     return m.group(1).strip() if m else ""
+
+
+def _dedupe(items):
+    out = []
+    for x in items:
+        x = (x or "").strip()
+        if x and x not in out:
+            out.append(x)
+    return out
+
+
+def _parse_bullet_kv(section: str):
+    """解析 ``- [[名称]]: 值`` 形式的条目，兼容单行/多行。
+
+    返回 [(名称, 值), ...]。值取到下一个 ``- [[`` 之前或段末，
+    因此即便整段在一行（条目用 ``空格-空格[[`` 分隔）也能正确切分。
+    """
+    return [
+        (k.strip(), v.strip())
+        for k, v in re.findall(
+            r"\[\[(.*?)\]\]\s*[:：]\s*(.+?)(?=\s-\s*\[\[|\Z)", section, re.DOTALL
+        )
+    ]
 
 
 def extract_concepts(ai_output: str):
     section = _extract_section(ai_output, "Concepts")
     text_to_search = section if section else ai_output
-    concepts = re.findall(r"\[\[(.*?)\]\]", text_to_search)
-    unique = []
-    for c in concepts:
-        c = c.strip()
-        if c and c not in unique:
-            unique.append(c)
-    return unique
+    return _dedupe(re.findall(r"\[\[(.*?)\]\]", text_to_search))
 
 
 def extract_definitions(ai_output: str):
@@ -103,11 +125,29 @@ def extract_definitions(ai_output: str):
     if not section:
         return {}
     defs = {}
-    for line in section.splitlines():
-        m = re.match(r"-\s*\[\[(.*?)\]\]\s*[:：]\s*(.+)", line.strip())
-        if m:
-            defs[m.group(1).strip()] = m.group(2).strip()
+    for name, d in _parse_bullet_kv(section):
+        if name and d:
+            defs[name] = d
     return defs
+
+
+def extract_relations(ai_output: str) -> dict:
+    """解析 # Relations 段，返回 {概念: [真正相关的概念...]}。
+
+    格式：``- [[概念]]: [[相关A]], [[相关B]]``。这是 A 项的核心——
+    用 LLM 给出的语义相关项替代旧的"同篇全量共现"。
+    """
+    section = _extract_section(ai_output, "Relations")
+    if not section:
+        return {}
+    relations: dict[str, list] = {}
+    for concept, rhs in _parse_bullet_kv(section):
+        targets = _dedupe(
+            [t for t in re.findall(r"\[\[(.*?)\]\]", rhs) if t.strip() and t.strip() != concept]
+        )
+        if concept and targets:
+            relations[concept] = targets
+    return relations
 
 
 # =========================
@@ -179,6 +219,74 @@ def _update_archived_path(processed_file: str, archived_path: str) -> None:
 # =========================
 
 
+def _wiki_file_for(concept: str) -> str | None:
+    safe_name = sanitize_filename(concept)
+    if not safe_name:
+        return None
+    return os.path.join(config.WIKI_PATH, f"{safe_name}.md")
+
+
+def _norm_name_key(name: str) -> str:
+    """归一化键：去全部空白 + 小写。用于发现仅大小写/空格不同的同名词条。"""
+    return re.sub(r"\s+", "", name or "").lower()
+
+
+def _existing_wiki_variant(concept: str) -> str | None:
+    """若 04_Wiki 里已存在仅大小写/空格不同的同名词条，返回其路径，否则 None。
+
+    防止 ``AI agent`` / ``AI Agent`` / ``Open Router`` / ``OpenRouter`` 这类
+    仅大小写或空格差异造成的重复建档（单复数差异不在此处理，过于激进，留给合并脚本）。
+    """
+    safe = sanitize_filename(concept)
+    if not safe:
+        return None
+    target = _norm_name_key(safe)
+    if not target:
+        return None
+    try:
+        for fn in os.listdir(config.WIKI_PATH):
+            if fn.endswith(".md") and _norm_name_key(fn[:-3]) == target:
+                return os.path.join(config.WIKI_PATH, fn)
+    except OSError:
+        return None
+    return None
+
+
+def _read_section_links(text: str, header: str) -> list:
+    """读取 ``## <header>`` 段里的所有 [[链接]] 名。"""
+    m = re.search(
+        rf"##[ \t]*{re.escape(header)}[ \t]*\n(.*?)(?=\n##[ \t]|\Z)", text, re.DOTALL
+    )
+    if not m:
+        return []
+    return _dedupe(re.findall(r"\[\[(.*?)\]\]", m.group(1)))
+
+
+def _read_definition(text: str) -> str:
+    m = re.search(r"##[ \t]*Definition[ \t]*\n(.*?)(?=\n##[ \t]|\Z)", text, re.DOTALL)
+    return m.group(1).strip() if m else ""
+
+
+def _replace_section_body(text: str, header: str, body: str) -> str:
+    """把 ``## <header>`` 段的正文整体替换为 body（不含标题行）。段不存在则原样返回。
+
+    用 ``[ \\t]*`` 而非 ``\\s*`` 限定标题行（避免跨行吞掉空行），并固定重建为
+    ``## <header>\\n\\n<body>\\n``，保证重复更新时空行不累积、格式稳定。
+    """
+    pat = re.compile(
+        rf"##[ \t]*{re.escape(header)}[ \t]*\n(.*?)(?=\n##[ \t]|\Z)", re.DOTALL
+    )
+    new_text, n = pat.subn(
+        lambda m: f"## {header}\n\n" + body.rstrip() + "\n", text, count=1
+    )
+    return new_text if n else text
+
+
+def _is_weak_definition(d: str) -> bool:
+    d = (d or "").strip()
+    return (not d) or d.upper() == "TODO"
+
+
 def _append_reference(wiki_file: str, source_stem: str) -> None:
     with open(wiki_file, "r", encoding="utf-8") as f:
         text = f.read()
@@ -204,25 +312,105 @@ def _append_reference(wiki_file: str, source_stem: str) -> None:
     logger.info("追加 Wiki 引用: %s <- %s", wiki_file, source_stem)
 
 
-def create_or_update_wiki(
-    concept: str, source_file: str, concepts: list, definitions: dict
+def _update_existing_wiki(
+    wiki_file: str,
+    concept: str,
+    source_stem: str,
+    related: list,
+    refined_def: str,
+    raw_def: str,
 ) -> None:
-    os.makedirs(config.WIKI_PATH, exist_ok=True)
-    safe_name = sanitize_filename(concept)
-    if not safe_name:
-        logger.warning("概念名清洗后为空，跳过: %r", concept)
-        return
+    """词条已存在时（C 项）：
 
-    wiki_file = os.path.join(config.WIKI_PATH, f"{safe_name}.md")
-    source_stem = Path(source_file).stem
-
-    if os.path.exists(wiki_file):
+    1. 追加来源引用（保留可追溯性）。
+    2. Related 做并集去重 + 增补（用 A 项的语义相关项，而非全量共现）。
+    3. 定义择优，只在以下两种情况覆盖，避免用某篇文章的窄定义冲掉已有好定义：
+       - 拿到 LLM 精炼后的定义（refined_def）；或
+       - 现有定义为空/TODO，用本篇候选定义补上。
+    """
+    try:
+        with open(wiki_file, "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError as e:
+        logger.warning("读取 Wiki 失败，退化为仅追加引用 file=%s err=%s", wiki_file, e)
         _append_reference(wiki_file, source_stem)
         return
 
-    related_lines = [f"- [[{c}]]" for c in concepts if c != concept]
-    related_text = "\n".join(related_lines) if related_lines else ""
-    definition_text = definitions.get(concept, "TODO")
+    changed = False
+
+    # 2. Related 合并去重
+    if related:
+        existing = _read_section_links(text, "Related")
+        merged = _dedupe([r for r in (existing + related) if r != concept])
+        if merged != existing:
+            body = "\n".join(f"- [[{r}]]" for r in merged)
+            new_text = _replace_section_body(text, "Related", body)
+            if new_text != text:
+                text = new_text
+                changed = True
+
+    # 3. 定义择优
+    cur = _read_definition(text)
+    def_to_write = ""
+    if refined_def and not _is_weak_definition(refined_def):
+        def_to_write = refined_def.strip()
+    elif _is_weak_definition(cur) and raw_def and not _is_weak_definition(raw_def):
+        def_to_write = raw_def.strip()
+    if def_to_write and def_to_write != cur:
+        new_text = _replace_section_body(text, "Definition", def_to_write)
+        if new_text != text:
+            text = new_text
+            changed = True
+
+    if changed:
+        try:
+            with open(wiki_file, "w", encoding="utf-8") as f:
+                f.write(text)
+            logger.info("更新 Wiki（定义/Related）: %s", wiki_file)
+        except OSError as e:
+            logger.warning("写回 Wiki 失败 file=%s err=%s", wiki_file, e)
+
+    # 1. 追加引用（_append_reference 自身会去重）
+    _append_reference(wiki_file, source_stem)
+
+
+def create_or_update_wiki(
+    concept: str,
+    source_file: str,
+    definitions: dict,
+    relations: dict,
+    refined_defs: dict | None = None,
+) -> None:
+    os.makedirs(config.WIKI_PATH, exist_ok=True)
+    wiki_file = _wiki_file_for(concept)
+    if not wiki_file:
+        logger.warning("概念名清洗后为空，跳过: %r", concept)
+        return
+
+    source_stem = Path(source_file).stem
+    refined_defs = refined_defs or {}
+    # A 项：用 LLM 给出的语义相关项，没有则留空（不再回退到全量共现噪声）
+    related = _dedupe([r for r in relations.get(concept, []) if r != concept])
+
+    # 防重：精确文件不存在时，复用仅大小写/空格不同的已有词条，避免重复建档
+    if not os.path.exists(wiki_file):
+        variant = _existing_wiki_variant(concept)
+        if variant:
+            wiki_file = variant
+
+    if os.path.exists(wiki_file):
+        _update_existing_wiki(
+            wiki_file,
+            concept,
+            source_stem,
+            related,
+            refined_def=refined_defs.get(concept, ""),
+            raw_def=definitions.get(concept, ""),
+        )
+        return
+
+    related_text = "\n".join(f"- [[{r}]]" for r in related)
+    definition_text = definitions.get(concept) or "TODO"
 
     content = (
         "---\n"
@@ -244,6 +432,74 @@ def create_or_update_wiki(
         f.write(content)
 
     logger.info("创建 Wiki: %s", wiki_file)
+
+
+# =========================
+# C 项：已存在词条的定义精炼（每篇文章一次批量 LLM 调用）
+# =========================
+
+_REFINE_SYSTEM_PROMPT = (
+    "你是知识库词条维护助手。下面给出若干概念，每个概念有一条「现有定义」和一条来自新文章的"
+    "「候选定义」。请为每个概念输出一条最准确、凝练、与具体文章脱钩的通用定义（不超过50字，"
+    "中文，不带标点结尾也可）。\n"
+    "规则：\n"
+    "- 综合两条定义择优融合，去掉只属于某篇文章的临时性描述。\n"
+    "- 不要解释，不要引导语。\n"
+    "- 严格逐行输出，格式：- [[概念]]: 定义\n"
+)
+
+
+def refine_existing_definitions(
+    existing_concepts: list, definitions: dict
+) -> dict:
+    """C 项：对已存在且本篇给出了新候选定义的概念，批量调一次 LLM 融合精炼。
+
+    失败/限速时返回 {}，调用方退化为保留原定义，绝不影响文章处理。
+    """
+    items = []
+    for c in existing_concepts:
+        wf = _wiki_file_for(c)
+        if not wf or not os.path.exists(wf):
+            continue
+        new_def = (definitions.get(c) or "").strip()
+        if not new_def or _is_weak_definition(new_def):
+            continue
+        try:
+            with open(wf, "r", encoding="utf-8") as f:
+                old_def = _read_definition(f.read())
+        except OSError:
+            continue
+        if not old_def or _is_weak_definition(old_def):
+            # 原定义为空/TODO，直接用新定义，无需 LLM
+            continue
+        if new_def == old_def:
+            continue
+        items.append((c, old_def, new_def))
+
+    if not items:
+        return {}
+
+    lines = [
+        f"- [[{c}]]: 现有定义「{old}」；候选定义「{new}」"
+        for c, old, new in items
+    ]
+    user_content = "\n".join(lines)
+    try:
+        text, _meta = ask_with_system(_REFINE_SYSTEM_PROMPT, user_content)
+    except Exception as e:
+        logger.warning("定义精炼 LLM 调用失败，保留原定义 err=%s", e)
+        return {}
+
+    refined = {}
+    for line in (text or "").splitlines():
+        m = re.match(r"-\s*\[\[(.*?)\]\]\s*[:：]\s*(.+)", line.strip())
+        if m:
+            name, d = m.group(1).strip(), m.group(2).strip()
+            if name and d and not _is_weak_definition(d):
+                refined[name] = d
+    if refined:
+        logger.info("定义精炼：更新 %s 个概念定义", len(refined))
+    return refined
 
 
 # =========================
@@ -554,10 +810,20 @@ def process_markdown(file_path: str) -> None:
 
         concepts = extract_concepts(ai_output)
         definitions = extract_definitions(ai_output)
+        relations = extract_relations(ai_output)
         logger.info("提取 Concepts: %s", concepts)
 
+        # C 项：对已存在的概念，批量精炼定义（一次 LLM 调用，失败则退化保留原定义）
+        existing_concepts = [
+            c for c in concepts
+            if (_wiki_file_for(c) and os.path.exists(_wiki_file_for(c)))
+        ]
+        refined_defs = refine_existing_definitions(existing_concepts, definitions)
+
         for concept in concepts:
-            create_or_update_wiki(concept, file_path, concepts, definitions)
+            create_or_update_wiki(
+                concept, file_path, definitions, relations, refined_defs
+            )
 
         try:
             link_processed_to_daily(file_path, processed_file)
